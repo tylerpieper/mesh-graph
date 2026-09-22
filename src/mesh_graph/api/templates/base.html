@@ -8,7 +8,8 @@
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
-<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<link rel="stylesheet" href="/static/style.css?v=2">
 {% block head %}{% endblock %}
 </head>
 <body>
@@ -51,6 +52,42 @@ function localToUtc(str) {
 }
 document.addEventListener('DOMContentLoaded', formatTimestamps);
 document.addEventListener('htmx:afterSwap', formatTimestamps);
+
+function initPanZoom(objEl) {
+  if (objEl.__panZoom) {
+    objEl.__panZoom.destroy();
+    delete objEl.__panZoom;
+  }
+  // Wait a bit longer to ensure Alpine has removed display: none
+  setTimeout(function() {
+    try {
+      if (objEl.style.display === 'none') return;
+      var svgDoc = objEl.contentDocument || objEl.getSVGDocument();
+      if (svgDoc) {
+        var svgEl = svgDoc.documentElement;
+        
+        // Explicitly prevent default wheel behavior inside the object document
+        // to stop the parent window from scrolling, overriding any passive defaults.
+        var preventScroll = function(e) { e.preventDefault(); };
+        svgDoc.addEventListener('wheel', preventScroll, { passive: false });
+        svgDoc.addEventListener('mousewheel', preventScroll, { passive: false });
+        svgDoc.addEventListener('DOMMouseScroll', preventScroll, { passive: false });
+      }
+      objEl.__panZoom = svgPanZoom(objEl, {
+        zoomEnabled: true,
+        controlIconsEnabled: false,
+        fit: true,
+        contain: true,
+        center: true,
+        zoomScaleSensitivity: 0.1,
+        minZoom: 0.01,
+        maxZoom: 10
+      });
+    } catch (e) {
+      console.error("Failed to init pan-zoom:", e);
+    }
+  }, 150);
+}
 </script>
 </body>
 </html>
