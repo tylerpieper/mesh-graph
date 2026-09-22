@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=2">
+<link rel="stylesheet" href="/static/style.css">
 {% block head %}{% endblock %}
 </head>
 <body>
@@ -72,6 +72,33 @@ function initPanZoom(objEl) {
         svgDoc.addEventListener('wheel', preventScroll, { passive: false });
         svgDoc.addEventListener('mousewheel', preventScroll, { passive: false });
         svgDoc.addEventListener('DOMMouseScroll', preventScroll, { passive: false });
+        
+        // Prevent accidental navigation when clicking and dragging a node
+        var isDragging = false;
+        var startX, startY;
+        svgDoc.addEventListener('mousedown', function(e) {
+          isDragging = false;
+          startX = e.clientX;
+          startY = e.clientY;
+        });
+        svgDoc.addEventListener('mousemove', function(e) {
+          if (startX !== undefined && startY !== undefined) {
+            if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) {
+              isDragging = true;
+            }
+          }
+        });
+        svgDoc.addEventListener('mouseup', function(e) {
+          startX = undefined;
+          startY = undefined;
+        });
+        svgDoc.addEventListener('click', function(e) {
+          if (isDragging) {
+            e.preventDefault();
+            e.stopPropagation();
+            isDragging = false;
+          }
+        }, true);
       }
       objEl.__panZoom = svgPanZoom(objEl, {
         zoomEnabled: true,
