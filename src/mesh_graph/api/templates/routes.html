@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Routes{% endblock %}
 {% block content %}
 <div x-data="routesControls()" x-init="init()" class="routes-page">
@@ -60,7 +60,7 @@
       <button type="button" @click="
         let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
         if (obj && obj.__panZoom) { obj.__panZoom.resetZoom(); obj.__panZoom.center(); }
-      " title="Reset Zoom">?</button>
+      " title="Reset Zoom">&#x2316;</button>
     </div>
     
     <template x-if="isValid()">
@@ -228,3 +228,4 @@ function routesControls() {
 }
 </script>
 {% endblock %}
+
