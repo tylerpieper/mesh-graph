@@ -54,14 +54,27 @@
   <div class="graph-container" :class="{ loading: loading }">
     <div x-show="loading" class="spinner"></div>
     <div class="zoom-controls" x-show="!loading" x-cloak>
-      <button type="button" @click="$refs.graphObj.__panZoom && $refs.graphObj.__panZoom.zoomIn()" title="Zoom In">+</button>
-      <button type="button" @click="$refs.graphObj.__panZoom && $refs.graphObj.__panZoom.zoomOut()" title="Zoom Out">-</button>
-      <button type="button" @click="$refs.graphObj.__panZoom && $refs.graphObj.__panZoom.resetZoom(); $refs.graphObj.__panZoom && $refs.graphObj.__panZoom.center()" title="Reset Zoom">&#x2316;</button>
+      <button type="button" @click="
+        let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
+        if (obj && obj.__panZoom) { obj.__panZoom.zoomIn(); }
+      " title="Zoom In">+</button>
+      <button type="button" @click="
+        let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
+        if (obj && obj.__panZoom) { obj.__panZoom.zoomOut(); }
+      " title="Zoom Out">-</button>
+      <button type="button" @click="
+        let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
+        if (obj && obj.__panZoom) { obj.__panZoom.resetZoom(); obj.__panZoom.center(); }
+      " title="Reset Zoom">&#x2316;</button>
     </div>
     
-    <object x-ref="graphObj" x-show="isValid()" :data="graphUrl" type="image/svg+xml"
-            @load="loading = false; setTimeout(() => initPanZoom($el), 50)" @error="loading = false"
-            x-cloak></object>
+    <template x-if="isValid()">
+      <template x-for="url in [graphUrl]" :key="url">
+        <object x-ref="graphObj" :data="url" type="image/svg+xml"
+                @load="loading = false; setTimeout(() => initPanZoom($el), 50)" @error="loading = false"
+                x-cloak></object>
+      </template>
+    </template>
 
     <template x-if="!isValid()">
       <div style="padding: 2rem; text-align: center; color: var(--text-muted); position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);">Please select a From Node and To Node.</div>
