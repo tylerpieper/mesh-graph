@@ -360,3 +360,73 @@ def traceroute_detail(
             "geojson_url": geojson_url,
         },
     )
+
+
+@router.get("/routes", response_class=HTMLResponse)
+def routes_page(
+    request: Request,
+    from_node: Optional[str] = Query(default=None, alias="from"),
+    to_node: Optional[str] = Query(default=None, alias="to"),
+):
+    default_start, default_end = _default_time_bounds()
+    return templates.TemplateResponse(
+        request,
+        "routes.html",
+        {
+            "default_start": default_start,
+            "default_end": default_end,
+            "from_id": from_node,
+            "to_id": to_node,
+        },
+    )
+
+@router.get("/api/routes_max_count")
+def routes_max_count(
+    request: Request,
+    from_node: Optional[str] = Query(default=None, alias="from"),
+    to_node: Optional[str] = Query(default=None, alias="to"),
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None),
+):
+    if not from_node or not to_node:
+        return {"max_count": 0}
+        
+    db = _get_db(request)
+    try:
+        from_id = parse_node_id(from_node)
+        to_id = parse_node_id(to_node)
+    except ValueError:
+        return {"max_count": 0}
+        
+    start_ts, end_ts = parse_time_bounds(start, end)
+    
+    from mesh_graph.db import get_routes_links_between_nodes
+    import networkx as nx
+    
+    links = get_routes_links_between_nodes(db, node_a=from_id, node_b=to_id, start_ts=start_ts, end_ts=end_ts)
+    
+    traces = {}
+    for row in links:
+        key = (row['trace_id'], row['is_reply'])
+        traces.setdefault(key, []).append(row)
+        
+    path_counts = {}
+    for (trace_id, is_reply), trace_links in traces.items():
+        TG = nx.DiGraph()
+        for link in trace_links:
+            TG.add_edge(link['link_start'], link['link_end'])
+            
+        if TG.has_node(from_id) and TG.has_node(to_id):
+            try:
+                path = nx.shortest_path(TG, source=from_id, target=to_id)
+                path_tuple = tuple(path)
+                path_counts[path_tuple] = path_counts.get(path_tuple, 0) + 1
+            except nx.NetworkXNoPath:
+                pass
+                
+    if not path_counts:
+        return {"max_count": 0}
+        
+    max_count = max(path_counts.values())
+    return {"max_count": max_count}
+

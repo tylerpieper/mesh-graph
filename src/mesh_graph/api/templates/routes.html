@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Routes{% endblock %}
+{% block content %}
+<div x-data="routesControls()" x-init="init()" class="routes-page">
+  <h1>Routes</h1>
+  
+  <div class="controls" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; margin-bottom: 1rem;">
+    <label style="position: relative;">From Node
+      <input type="search" placeholder="Search by name or !id..." autocomplete="off" x-model="fromNode" @input.debounce.300ms="searchNodes('from', fromNode); onChange()" @focus="if(fromNode.length > 0) searchNodes('from', fromNode)" @click.away="fromOpen = false">
+      <div x-show="fromOpen && fromResults.length > 0" style="position:absolute; top:100%; left:0; width:100%; min-width:300px; background:var(--surface); border:1px solid var(--border); z-index:50; max-height:200px; overflow-y:auto; box-shadow:0 4px 6px rgba(0,0,0,0.1); border-radius: 0.25rem;">
+        <template x-for="r in fromResults" :key="r.nodenum">
+          <div @click="selectNode('from', r)" style="padding:0.5rem; cursor:pointer; border-bottom:1px solid var(--border); font-size:0.9rem;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+            <span x-text="(r.long_name || '') + ' (' + (r.short_name || '') + ') - !' + r.nodenum.toString(16).padStart(8, '0')"></span>
+          </div>
+        </template>
+      </div>
+    </label>
+    
+    <label style="position: relative;">To Node
+      <input type="search" placeholder="Search by name or !id..." autocomplete="off" x-model="toNode" @input.debounce.300ms="searchNodes('to', toNode); onChange()" @focus="if(toNode.length > 0) searchNodes('to', toNode)" @click.away="toOpen = false">
+      <div x-show="toOpen && toResults.length > 0" style="position:absolute; top:100%; left:0; width:100%; min-width:300px; background:var(--surface); border:1px solid var(--border); z-index:50; max-height:200px; overflow-y:auto; box-shadow:0 4px 6px rgba(0,0,0,0.1); border-radius: 0.25rem;">
+        <template x-for="r in toResults" :key="r.nodenum">
+          <div @click="selectNode('to', r)" style="padding:0.5rem; cursor:pointer; border-bottom:1px solid var(--border); font-size:0.9rem;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+            <span x-text="(r.long_name || '') + ' (' + (r.short_name || '') + ') - !' + r.nodenum.toString(16).padStart(8, '0')"></span>
+          </div>
+        </template>
+      </div>
+    </label>
+    
+    <label>Direction
+      <select x-model="direction" @change="onChange()">
+        <option value="both">Both</option>
+        <option value="out">Outbound (Solid)</option>
+        <option value="in">Inbound (Dashed)</option>
+      </select>
+    </label>
+    
+    <label>Start
+      <input type="datetime-local" x-model="start" @change="onTimeChange()">
+    </label>
+    
+    <label>End
+      <input type="datetime-local" x-model="end" @change="onTimeChange()">
+    </label>
+  </div>
+  
+  <div class="controls" style="display:flex; gap:1rem; align-items:center; margin-bottom: 1rem; flex-wrap: nowrap;">
+    <span style="white-space: nowrap;">Hide routes used this many times or fewer:</span>
+    <input type="range" min="0" :max="maxCount === 0 ? 1 : maxCount" x-model.number="minCount" @change="onChange()" style="flex-grow: 1; max-width: 400px;" :disabled="maxCount === 0">
+    <input type="number" min="0" :max="maxCount" x-model.number="minCount" @change="onChange()" style="width: 80px;" :disabled="maxCount === 0">
+    <span style="min-width:100px; white-space: nowrap;">Max paths: <span x-text="maxCount"></span></span>
+  </div>
+  
+  <div class="graph-container" :class="{ loading: loading }">
+    <div x-show="loading" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); display:flex; align-items:center; gap:0.75rem; background:var(--surface); padding:1rem 1.5rem; border-radius:0.5rem; box-shadow:0 4px 15px rgba(0,0,0,0.1); z-index: 10;">
+      <span class="spinner" style="position: relative; top: auto; left: auto; margin: 0; width: 1.5rem; height: 1.5rem; display: block;"></span>
+      <span style="font-weight: 500;">Loading...</span>
+    </div>
+    <div class="zoom-controls" x-show="!loading" x-cloak style="z-index: 5;">
+      <button type="button" @click="
+        let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
+        if (obj && obj.__panZoom) { obj.__panZoom.resetZoom(); obj.__panZoom.center(); }
+      " title="Reset Zoom">?</button>
+    </div>
+    
+    <template x-if="isValid()">
+      <template x-for="url in [graphUrl]" :key="url">
+        <object type="image/svg+xml" :data="url" @load="onGraphLoad" @error="loading = false" x-ref="graphObj"></object>
+      </template>
+    </template>
+    <template x-if="!isValid()">
+      <div style="padding: 2rem; text-align: center; color: var(--text-muted); position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);">Please select a From Node and To Node.</div>
+    </template>
+  </div>
+</div>
+
+<script>
+function routesControls() {
+  const p = new URLSearchParams(location.search);
+  const hasTimeInUrl = p.has('start') || p.has('end');
+  return {
+    fromNode: p.get('from') || '{{ from_id or "" }}',
+    toNode: p.get('to') || '{{ to_id or "" }}',
+    fromResults: [],
+    toResults: [],
+    fromOpen: false,
+    toOpen: false,
+    direction: p.get('direction') || 'both',
+    start: hasTimeInUrl ? utcToLocal(p.get('start')) : utcToLocal('{{ default_start }}'),
+    end: hasTimeInUrl ? utcToLocal(p.get('end')) : utcToLocal('{{ default_end }}'),
+    minCount: parseInt(p.get('min_count') || '0', 10),
+    maxCount: 0,
+    userSetTime: hasTimeInUrl,
+    loading: false,
+    
+    async searchNodes(target, query) {
+        if (query.length < 1) {
+            this[target + 'Results'] = [];
+            return;
+        }
+        try {
+            const res = await fetch('/api/nodes?limit=20&q=' + encodeURIComponent(query));
+            this[target + 'Results'] = await res.json();
+            this[target + 'Open'] = true;
+        } catch(e) {
+            console.error(e);
+        }
+    },
+    
+    selectNode(target, node) {
+        const hex = '!' + node.nodenum.toString(16).padStart(8, '0');
+        const formatted = (node.long_name || '') + ' (' + (node.short_name || '') + ') - ' + hex;
+        this[target + 'Node'] = formatted;
+        this[target + 'Open'] = false;
+        this.onChange();
+    },
+
+    isValid() {
+      return this.fromNode.includes('!') && this.toNode.includes('!');
+    },
+    
+    get graphUrl() {
+      if (!this.isValid()) return '';
+      const q = new URLSearchParams({ format: 'svg', clickable: 'true' });
+      q.set('from', this.fromNode);
+      q.set('to', this.toNode);
+      q.set('direction', this.direction);
+      q.set('start', localToUtc(this.start));
+      q.set('end', localToUtc(this.end));
+      q.set('min_count', this.minCount);
+      return '/graph/routes?' + q.toString();
+    },
+    
+    onTimeChange() {
+      this.userSetTime = true;
+      this.fetchMaxCount();
+      this.onChange();
+    },
+    
+    onChange() {
+      if (!this.isValid()) return;
+      this.loading = true;
+      const u = new URL(window.location);
+      if (this.userSetTime) {
+        u.searchParams.set('start', localToUtc(this.start));
+        u.searchParams.set('end', localToUtc(this.end));
+      } else {
+        u.searchParams.delete('start');
+        u.searchParams.delete('end');
+      }
+      u.searchParams.set('from', this.fromNode);
+      u.searchParams.set('to', this.toNode);
+      u.searchParams.set('direction', this.direction);
+      if (this.minCount > 0) {
+        u.searchParams.set('min_count', this.minCount);
+      } else {
+        u.searchParams.delete('min_count');
+      }
+      history.pushState({}, '', u);
+      
+      setTimeout(() => {
+        this.loading = false;
+      }, 3000);
+    },
+    
+    onGraphLoad(e) {
+      this.loading = false;
+      if (e && e.target) {
+        setTimeout(() => {
+           initPanZoom(e.target);
+        }, 50);
+      }
+    },
+    
+    fetchMaxCount() {
+      if (!this.isValid()) return;
+      
+      const q = new URLSearchParams();
+      q.set('from', this.fromNode);
+      q.set('to', this.toNode);
+      q.set('start', localToUtc(this.start));
+      q.set('end', localToUtc(this.end));
+      
+      fetch('/api/routes_max_count?' + q.toString())
+        .then(res => res.json())
+        .then(data => {
+          this.maxCount = data.max_count;
+          if (this.minCount > this.maxCount) {
+             this.minCount = this.maxCount;
+          }
+        })
+        .catch(err => console.error('Failed to fetch max count', err));
+    },
+    
+    init() {
+      if (this.isValid()) {
+         this.fetchMaxCount();
+         this.loading = true;
+         setTimeout(() => {
+           this.loading = false;
+         }, 3000);
+      }
+      
+      if (this.userSetTime) return;
+      var self = this;
+      function tick() {
+        if (self.userSetTime) return;
+        var now = new Date();
+        var end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours(), 0, 0));
+        var start = new Date(end.getTime() - 86400000);
+        var ns = utcToLocal(start.toISOString());
+        var ne = utcToLocal(end.toISOString());
+        if (self.start !== ns || self.end !== ne) {
+          self.start = ns;
+          self.end = ne;
+          if (self.isValid()) {
+             self.fetchMaxCount();
+             self.loading = true;
+             setTimeout(() => { self.loading = false; }, 3000);
+          }
+        }
+      }
+      tick();
+      setInterval(tick, 60000);
+      document.addEventListener('visibilitychange', function() { if (!document.hidden) tick(); });
+    }
+  }
+}
+</script>
+{% endblock %}
