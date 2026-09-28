@@ -51,7 +51,7 @@
     <span style="min-width:100px; white-space: nowrap;">Max paths: <span x-text="maxCount"></span></span>
   </div>
   
-  <div class="graph-container" :class="{ loading: loading }">
+  <div class="graph-container" :class="{ loading: loading }" @wheel.prevent>
     <div x-show="loading" class="spinner"></div>
     <div class="zoom-controls" x-show="!loading" x-cloak>
       <button type="button" @click="
@@ -227,3 +227,4 @@ function routesControls() {
 }
 </script>
 {% endblock %}
+
