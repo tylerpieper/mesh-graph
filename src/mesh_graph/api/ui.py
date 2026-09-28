@@ -414,24 +414,28 @@ def routes_max_count(
         
     path_counts = {}
     for (trace_id, is_reply), trace_links in traces.items():
-        is_reply_bool = bool(is_reply)
-        if direction == "out" and is_reply_bool:
-            continue
-        if direction == "in" and not is_reply_bool:
-            continue
-            
         TG = nx.DiGraph()
         for link in trace_links:
             TG.add_edge(link['link_start'], link['link_end'])
             
-        if TG.has_node(from_id) and TG.has_node(to_id):
-            try:
-                path = nx.shortest_path(TG, source=from_id, target=to_id)
-                path_tuple = tuple(path)
-                path_key = (path_tuple, is_reply_bool)
+        if not (TG.has_node(from_id) and TG.has_node(to_id)):
+            continue
+            
+        try:
+            path_ab = nx.shortest_path(TG, source=from_id, target=to_id)
+            if direction in ("both", "out"):
+                path_key = (tuple(path_ab), False)
                 path_counts[path_key] = path_counts.get(path_key, 0) + 1
-            except nx.NetworkXNoPath:
-                pass
+        except nx.NetworkXNoPath:
+            pass
+            
+        try:
+            path_ba = nx.shortest_path(TG, source=to_id, target=from_id)
+            if direction in ("both", "in"):
+                path_key = (tuple(path_ba), True)
+                path_counts[path_key] = path_counts.get(path_key, 0) + 1
+        except nx.NetworkXNoPath:
+            pass
                 
     if not path_counts:
         return {"max_frequency": 0, "total_paths": 0, "path_frequencies": []}
