@@ -374,6 +374,7 @@ def routes_page(
         },
     )
 
+from typing import Literal
 @router.get("/api/routes_max_count")
 def routes_max_count(
     request: Request,
@@ -381,16 +382,17 @@ def routes_max_count(
     to_node: Optional[str] = Query(default=None, alias="to"),
     start: Optional[str] = Query(default=None),
     end: Optional[str] = Query(default=None),
+    direction: Literal["both", "out", "in"] = Query(default="both"),
 ):
     if not from_node or not to_node:
-        return {"max_count": 0}
+        return {"max_frequency": 0, "total_paths": 0, "path_frequencies": []}
         
     db = _get_db(request)
     try:
         from_id = parse_node_id(from_node)
         to_id = parse_node_id(to_node)
     except ValueError:
-        return {"max_count": 0}
+        return {"max_frequency": 0, "total_paths": 0, "path_frequencies": []}
         
     start_ts, end_ts = parse_time_bounds(start, end)
     
@@ -406,6 +408,12 @@ def routes_max_count(
         
     path_counts = {}
     for (trace_id, is_reply), trace_links in traces.items():
+        is_reply_bool = bool(is_reply)
+        if direction == "out" and is_reply_bool:
+            continue
+        if direction == "in" and not is_reply_bool:
+            continue
+            
         TG = nx.DiGraph()
         for link in trace_links:
             TG.add_edge(link['link_start'], link['link_end'])
@@ -414,13 +422,18 @@ def routes_max_count(
             try:
                 path = nx.shortest_path(TG, source=from_id, target=to_id)
                 path_tuple = tuple(path)
-                path_counts[path_tuple] = path_counts.get(path_tuple, 0) + 1
+                path_key = (path_tuple, is_reply_bool)
+                path_counts[path_key] = path_counts.get(path_key, 0) + 1
             except nx.NetworkXNoPath:
                 pass
                 
     if not path_counts:
-        return {"max_count": 0}
+        return {"max_frequency": 0, "total_paths": 0, "path_frequencies": []}
         
-    max_count = max(path_counts.values())
-    return {"max_count": max_count}
+    freqs = list(path_counts.values())
+    return {
+        "max_frequency": max(freqs),
+        "total_paths": len(freqs),
+        "path_frequencies": freqs
+    }
 

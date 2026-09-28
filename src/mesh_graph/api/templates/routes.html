@@ -48,7 +48,7 @@
     <span style="white-space: nowrap;">Hide routes used this many times or fewer:</span>
     <input type="range" min="0" :max="maxCount === 0 ? 1 : maxCount" x-model.number="minCount" @change="onChange()" style="flex-grow: 1; max-width: 400px;" :disabled="maxCount === 0">
     <input type="number" min="0" :max="maxCount" x-model.number="minCount" @change="onChange()" style="width: 80px;" :disabled="maxCount === 0">
-    <span style="min-width:100px; white-space: nowrap;">Max paths: <span x-text="maxCount"></span></span>
+    <span style="min-width:150px; white-space: nowrap;">Displaying <span x-text="visiblePaths"></span>/<span x-text="totalPaths"></span> paths</span>
   </div>
   
   <div class="graph-container" :class="{ loading: loading }" @wheel.prevent>
@@ -98,6 +98,8 @@ function routesControls() {
     end: hasTimeInUrl ? utcToLocal(p.get('end')) : utcToLocal('{{ default_end }}'),
     minCount: parseInt(p.get('min_count') || '0', 10),
     maxCount: 0,
+    totalPaths: 0,
+    pathFreqs: [],
     userSetTime: hasTimeInUrl,
     loading: false,
     
@@ -148,6 +150,7 @@ function routesControls() {
     onChange() {
       if (!this.isValid()) return;
       this.loading = true;
+      this.fetchMaxCount();
       const u = new URL(window.location);
       if (this.userSetTime) {
         u.searchParams.set('start', localToUtc(this.start));
@@ -172,24 +175,32 @@ function routesControls() {
     },
     
     fetchMaxCount() {
-      if (!this.isValid()) return;
-      
-      const q = new URLSearchParams();
-      q.set('from', this.fromNode);
-      q.set('to', this.toNode);
-      q.set('start', localToUtc(this.start));
-      q.set('end', localToUtc(this.end));
-      
-      fetch('/api/routes_max_count?' + q.toString())
-        .then(res => res.json())
-        .then(data => {
-          this.maxCount = data.max_count;
-          if (this.minCount > this.maxCount) {
-             this.minCount = this.maxCount;
-          }
-        })
-        .catch(err => console.error('Failed to fetch max count', err));
-    },
+    if (!this.isValid()) return;
+    
+    const q = new URLSearchParams();
+    q.set('from', this.fromNode);
+    q.set('to', this.toNode);
+    q.set('start', localToUtc(this.start));
+    q.set('end', localToUtc(this.end));
+    q.set('direction', this.direction);
+    
+    fetch('/api/routes_max_count?' + q.toString())
+      .then(res => res.json())
+      .then(data => {
+        this.maxCount = data.max_frequency || 0;
+        this.totalPaths = data.total_paths || 0;
+        this.pathFreqs = data.path_frequencies || [];
+        if (this.minCount > this.maxCount) {
+           this.minCount = this.maxCount;
+        }
+      })
+      .catch(err => console.error('Failed to fetch route stats', err));
+  },
+  
+  get visiblePaths() {
+    if (!this.pathFreqs) return 0;
+    return this.pathFreqs.filter(freq => freq > this.minCount).length;
+  },
     
     init() {
       if (this.isValid()) {
@@ -227,5 +238,6 @@ function routesControls() {
 }
 </script>
 {% endblock %}
+
 
 
