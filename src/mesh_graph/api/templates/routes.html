@@ -77,7 +77,7 @@
       <button type="button" @click="
         let obj = Array.isArray($refs.graphObj) ? $refs.graphObj[0] : $refs.graphObj;
         if (obj && obj.__panZoom) { obj.__panZoom.resetZoom(); obj.__panZoom.center(); }
-      " title="Reset Zoom">&#x2316;</button>
+      " title="Reset Zoom">↺</button>
     </div>
     
     <template x-if="isValid()">
