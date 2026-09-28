@@ -2,9 +2,19 @@
 {% block title %}Routes{% endblock %}
 {% block content %}
 <div x-data="routesControls()" x-init="init()" class="routes-page">
-  <h1>Routes</h1>
+  <style>
+  .routes-controls-wrapper { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
+  .slider-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .slider-row > input[type="range"] { flex-grow: 1; min-width: 150px; }
   
-  <div class="controls" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; margin-bottom: 1rem;">
+  @media (max-width: 600px) {
+    .slider-row { flex-direction: column; align-items: stretch; }
+    .slider-row > span { text-align: center; }
+  }
+</style>
+<h1>Routes</h1>
+  
+  <div class="controls">
     <label style="position: relative;">From Node
       <input type="search" placeholder="Search by name or !id..." autocomplete="off" x-model="fromNode" @input.debounce.300ms="searchNodes('from', fromNode); onChange()" @focus="if(fromNode.length > 0) searchNodes('from', fromNode)" @click.away="fromOpen = false">
       <div x-show="fromOpen && fromResults.length > 0" style="position:absolute; top:100%; left:0; width:100%; min-width:300px; background:var(--surface); border:1px solid var(--border); z-index:50; max-height:200px; overflow-y:auto; box-shadow:0 4px 6px rgba(0,0,0,0.1); border-radius: 0.25rem;">
@@ -44,11 +54,13 @@
     </label>
   </div>
   
-  <div class="controls" style="display:flex; gap:1rem; align-items:center; margin-bottom: 1rem; flex-wrap: nowrap;">
-    <span style="white-space: nowrap;">Hide routes used this many times or fewer:</span>
-    <input type="range" min="0" :max="maxCount === 0 ? 1 : maxCount" x-model.number="minCount" @change="onChange()" style="flex-grow: 1; max-width: 400px;" :disabled="maxCount === 0">
-    <input type="number" min="0" :max="maxCount" x-model.number="minCount" @change="onChange()" style="width: 80px;" :disabled="maxCount === 0">
-    <span style="min-width:150px; white-space: nowrap;">Displaying <span x-text="visiblePaths"></span>/<span x-text="totalPaths"></span> paths</span>
+  <div class="controls">
+    <div class="slider-row" style="width: 100%;">
+      <span>Hide routes used this many times or fewer:</span>
+      <input type="range" min="0" :max="maxCount === 0 ? 1 : maxCount" x-model.number="minCount" @change="onChange()" :disabled="maxCount === 0">
+      <input type="number" min="0" :max="maxCount" x-model.number="minCount" @change="onChange()" style="width: 80px;" :disabled="maxCount === 0">
+      <span style="white-space: nowrap;">Displaying <strong x-text="visiblePaths"></strong>/<strong x-text="totalPaths"></strong> paths</span>
+    </div>
   </div>
   
   <div class="graph-container" :class="{ loading: loading }" @wheel.prevent>
