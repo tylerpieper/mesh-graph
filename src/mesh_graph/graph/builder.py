@@ -816,41 +816,44 @@ def build_routes_graph(
     path_edges = {}
     
     for (trace_id, is_reply), trace_links in traces.items():
-        is_reply_bool = bool(is_reply)
-        if direction == "out" and is_reply_bool:
-            continue
-        if direction == "in" and not is_reply_bool:
-            continue
-            
-        # Build directed graph for this trace
         TG = nx.DiGraph()
         for link in trace_links:
-            start = link['link_start']
-            end = link['link_end']
-            TG.add_edge(start, end, snr=link['snr'])
+            TG.add_edge(link['link_start'], link['link_end'], snr=link['snr'])
             
-        # Find path from from_node to to_node
-        if TG.has_node(from_node) and TG.has_node(to_node):
-            try:
-                # Assuming simple paths
-                path = nx.shortest_path(TG, source=from_node, target=to_node)
-                path_tuple = tuple(path)
-                
-                # Track counts per direction
-                path_key = (path_tuple, is_reply_bool)
+        if not (TG.has_node(from_node) and TG.has_node(to_node)):
+            continue
+            
+        try:
+            path_ab = nx.shortest_path(TG, source=from_node, target=to_node)
+            if direction in ("both", "out"):
+                path_key = (tuple(path_ab), False)
                 path_counts[path_key] = path_counts.get(path_key, 0) + 1
-                
-                # Store the link attributes for this path (take first seen snr for simplicity or average)
                 if path_key not in path_edges:
                     edges = []
-                    for i in range(len(path) - 1):
-                        u = path[i]
-                        v = path[i+1]
+                    for i in range(len(path_ab) - 1):
+                        u = path_ab[i]
+                        v = path_ab[i+1]
                         snr = TG[u][v].get('snr')
                         edges.append((u, v, snr))
                     path_edges[path_key] = edges
-            except nx.NetworkXNoPath:
-                pass
+        except nx.NetworkXNoPath:
+            pass
+            
+        try:
+            path_ba = nx.shortest_path(TG, source=to_node, target=from_node)
+            if direction in ("both", "in"):
+                path_key = (tuple(path_ba), True)
+                path_counts[path_key] = path_counts.get(path_key, 0) + 1
+                if path_key not in path_edges:
+                    edges = []
+                    for i in range(len(path_ba) - 1):
+                        u = path_ba[i]
+                        v = path_ba[i+1]
+                        snr = TG[u][v].get('snr')
+                        edges.append((u, v, snr))
+                    path_edges[path_key] = edges
+        except nx.NetworkXNoPath:
+            pass
                 
     G = nx.MultiDiGraph()
     
@@ -861,17 +864,17 @@ def build_routes_graph(
     max_edge_count = 0
     
     # Filter by min_count and aggregate edge statistics
-    for (path, is_reply_bool), count in path_counts.items():
+    for (path, is_inbound), count in path_counts.items():
         if count <= min_count:
             continue
             
-        edges = path_edges[(path, is_reply_bool)]
+        edges = path_edges[(path, is_inbound)]
         for (u, v, snr) in edges:
             if isinstance(u, int):
                 relevant_nodenums.add(u)
             if isinstance(v, int):
                 relevant_nodenums.add(v)
-            edge_key = (u, v, is_reply_bool)
+            edge_key = (u, v, is_inbound)
             edge_counts[edge_key] = edge_counts.get(edge_key, 0) + count
             max_edge_count = max(max_edge_count, edge_counts[edge_key])
             
@@ -888,15 +891,20 @@ def build_routes_graph(
         
     all_attrs = get_node_attrs(conn, relevant_nodenums=relevant_nodenums)
     
-    for (u, v, is_reply_bool), e_count in edge_counts.items():
-        # For replies, reverse the edge so the arrow points from to_node back to from_node
-        if is_reply_bool:
+    for (u, v, is_inbound), e_count in edge_counts.items():
+        if is_inbound:
+            # Path went B -> A. u is closer to B, v is closer to A.
+            # To make Graphviz layout A on the left, we add edge v -> u.
+            # We set dir="back" so the arrow points visually from u -> v (B -> A).
             start_name = node_id_format(v)
             end_name = node_id_format(u)
+            arrow_dir = "back"
         else:
+            # Path went A -> B. u is closer to A, v is closer to B.
             start_name = node_id_format(u)
             end_name = node_id_format(v)
-        
+            arrow_dir = "forward"
+            
         # Calculate penwidth (1.0 to 10.0 based on relative frequency)
         if max_edge_count > 1:
             # linear scaling
@@ -906,13 +914,13 @@ def build_routes_graph(
             
         # Formatting label (count + snr)
         label_parts = [f"Count: {e_count}"]
-        snrs = edge_snrs.get((u, v, is_reply_bool), [])
+        snrs = edge_snrs.get((u, v, is_inbound), [])
         if snrs:
             avg_snr = sum(snrs) / len(snrs)
             label_parts.append(f"Avg SNR: {avg_snr:.1f} dB")
             
         color = _xor_link_color(u, v)
-        style = "dashed" if is_reply_bool else "solid"
+        style = "dashed" if is_inbound else "solid"
             
         G.add_edge(
             start_name,
@@ -923,7 +931,7 @@ def build_routes_graph(
             penwidth=penwidth,
             label="\\n".join(label_parts),
             weight=e_count,
-            dir="forward"
+            dir=arrow_dir
         )
         
     nx.set_node_attributes(G, all_attrs)
