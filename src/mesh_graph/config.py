@@ -74,8 +74,16 @@ def _load_toml(path: str, require: bool) -> dict:
 
 
 def _env(key: str) -> str | None:
-    """Return the env var value, or None if unset or empty."""
-    return os.environ.get(key) or None
+    """Return the env var value, or ``None`` if the variable is not set."""
+    return os.environ.get(key)
+
+
+def _first(*values):
+    """Return the first value that is not ``None``."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
 
 
 def load_config(path: str | None = "config.toml") -> Config:
@@ -108,29 +116,29 @@ def load_config(path: str | None = "config.toml") -> Config:
     obs_toml = toml.get("observability", {})
 
     # ------------------------------------------------------------------ mqtt
-    broker = _env("MQTT__BROKER") or mqtt_toml.get("broker")
+    broker = _first(_env("MQTT__BROKER"), mqtt_toml.get("broker"))
     if not broker:
         raise ConfigError(
             "Missing required config: set 'mqtt.broker' in config.toml or MQTT__BROKER env var"
         )
     mqtt = MQTTConfig(
         broker=broker,
-        port=int(_env("MQTT__PORT") or mqtt_toml.get("port", 1883)),
-        username=_env("MQTT__USERNAME") or mqtt_toml.get("username", ""),
-        password=_env("MQTT__PASSWORD") or mqtt_toml.get("password", ""),
-        topic=_env("MQTT__TOPIC") or mqtt_toml.get("topic", "msh/#"),
-        encryption_key=_env("MQTT__ENCRYPTION_KEY") or mqtt_toml.get("encryption_key", "1PG7OiApB1nwvP+rz05pAQ=="),
+        port=int(_first(_env("MQTT__PORT"), mqtt_toml.get("port"), 1883)),
+        username=_first(_env("MQTT__USERNAME"), mqtt_toml.get("username"), ""),
+        password=_first(_env("MQTT__PASSWORD"), mqtt_toml.get("password"), ""),
+        topic=_first(_env("MQTT__TOPIC"), mqtt_toml.get("topic"), "msh/#"),
+        encryption_key=_first(_env("MQTT__ENCRYPTION_KEY"), mqtt_toml.get("encryption_key"), "1PG7OiApB1nwvP+rz05pAQ=="),
     )
 
     # ------------------------------------------------------------------- api
     api = APIConfig(
-        host=_env("API__HOST") or api_toml.get("host", "0.0.0.0"),
-        port=int(_env("API__PORT") or api_toml.get("port", 8080)),
+        host=_first(_env("API__HOST"), api_toml.get("host"), "0.0.0.0"),
+        port=int(_first(_env("API__PORT"), api_toml.get("port"), 8080)),
     )
 
     # -------------------------------------------------------------------- db
     db = DBConfig(
-        path=_env("DB__PATH") or db_toml.get("path", "trace-graph.db"),
+        path=_first(_env("DB__PATH"), db_toml.get("path"), "trace-graph.db"),
     )
 
     # --------------------------------------------------------- observability
@@ -142,11 +150,11 @@ def load_config(path: str | None = "config.toml") -> Config:
 
     observability = ObservabilityConfig(
         enabled=obs_enabled,
-        service_name=_env("OBSERVABILITY__SERVICE_NAME") or obs_toml.get("service_name", "mesh-graph"),
-        environment=_env("OBSERVABILITY__ENVIRONMENT") or obs_toml.get("environment", "dev"),
-        exporter=_env("OBSERVABILITY__EXPORTER") or obs_toml.get("exporter", "otlp"),
-        otlp_endpoint=_env("OBSERVABILITY__OTLP_ENDPOINT") or obs_toml.get("otlp_endpoint", "http://127.0.0.1:4317"),
-        sample_ratio=float(_env("OBSERVABILITY__SAMPLE_RATIO") or obs_toml.get("sample_ratio", 1.0)),
+        service_name=_first(_env("OBSERVABILITY__SERVICE_NAME"), obs_toml.get("service_name"), "mesh-graph"),
+        environment=_first(_env("OBSERVABILITY__ENVIRONMENT"), obs_toml.get("environment"), "dev"),
+        exporter=_first(_env("OBSERVABILITY__EXPORTER"), obs_toml.get("exporter"), "otlp"),
+        otlp_endpoint=_first(_env("OBSERVABILITY__OTLP_ENDPOINT"), obs_toml.get("otlp_endpoint"), "http://127.0.0.1:4317"),
+        sample_ratio=float(_first(_env("OBSERVABILITY__SAMPLE_RATIO"), obs_toml.get("sample_ratio"), 1.0)),
     )
 
     return Config(mqtt=mqtt, api=api, db=db, observability=observability)

@@ -41,4 +41,4 @@ ENV MQTT__BROKER="" \
 
 USER meshgraph
 
-ENTRYPOINT ["sh", "-c", "mesh-graph --mode $MESH_GRAPH_MODE"]
+ENTRYPOINT ["sh", "-c", "exec mesh-graph --mode $MESH_GRAPH_MODE"]

@@ -140,7 +140,8 @@ def test_default_file_not_found_is_silent(monkeypatch, tmp_path):
     """If config.toml doesn't exist at the default path, fall back to env vars."""
     _clear_env(monkeypatch)
     monkeypatch.setenv("MQTT__BROKER", "mqtt.example.com")
-    # Pass the default path string to a non-existent file — should not raise
+    # Ensure we're in a directory with no config.toml
+    monkeypatch.chdir(tmp_path)
     cfg = load_config("config.toml")
     assert cfg.mqtt.broker == "mqtt.example.com"
 
@@ -230,6 +231,25 @@ def test_env_provides_broker_when_toml_omits_it(tmp_path, monkeypatch):
     cfg = load_config(path)
     assert cfg.mqtt.broker == "mqtt.from-env.com"
     assert cfg.mqtt.port == 1884  # from file
+
+
+def test_empty_env_overrides_nonempty_toml(tmp_path, monkeypatch):
+    """Setting an env var to '' should override a non-empty TOML value."""
+    _clear_env(monkeypatch)
+    path = _toml(
+        """
+        [mqtt]
+        broker = "mqtt.example.com"
+        username = "file-user"
+        password = "file-pass"
+    """,
+        tmp_path,
+    )
+    monkeypatch.setenv("MQTT__USERNAME", "")
+    monkeypatch.setenv("MQTT__PASSWORD", "")
+    cfg = load_config(path)
+    assert cfg.mqtt.username == ""
+    assert cfg.mqtt.password == ""
 
 
 # ---------------------------------------------------------------------------
