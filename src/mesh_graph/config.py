@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
 
 class ConfigError(Exception):
@@ -26,7 +35,7 @@ class APIConfig:
 
 @dataclass
 class DBConfig:
-    path: str = "/data/trace-graph.db"
+    path: str = "trace-graph.db"
 
 
 @dataclass
@@ -47,61 +56,97 @@ class Config:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
 
-def _env(key: str, default: str | None = None) -> str | None:
-    return os.environ.get(key, default)
+def _load_toml(path: str, require: bool) -> dict:
+    """Load a TOML file and return its contents as a dict.
 
-
-def _require_env(key: str) -> str:
-    value = os.environ.get(key)
-    if not value:
-        raise ConfigError(f"Missing required environment variable: {key}")
-    return value
-
-
-def load_config_from_env() -> Config:
-    """Load configuration entirely from environment variables.
-
-    Required:
-        MQTT__BROKER
-
-    Optional (with defaults):
-        MQTT__PORT            (1883)
-        MQTT__USERNAME        ("")
-        MQTT__PASSWORD        ("")
-        MQTT__TOPIC           ("msh/#")
-        MQTT__ENCRYPTION_KEY  ("1PG7OiApB1nwvP+rz05pAQ==")
-        API__HOST             ("0.0.0.0")
-        API__PORT             (8080)
-        DB__PATH              ("/data/trace-graph.db")
-        OBSERVABILITY__ENABLED         (false)
-        OBSERVABILITY__SERVICE_NAME    ("mesh-graph")
-        OBSERVABILITY__ENVIRONMENT     ("dev")
-        OBSERVABILITY__EXPORTER        ("otlp")
-        OBSERVABILITY__OTLP_ENDPOINT   ("http://127.0.0.1:4317")
-        OBSERVABILITY__SAMPLE_RATIO    (1.0)
+    If *require* is False and the file doesn't exist, returns an empty dict
+    instead of raising (used for the default config.toml path).
     """
-    mqtt = MQTTConfig(
-        broker=_require_env("MQTT__BROKER"),
-        port=int(_env("MQTT__PORT", "1883")),  # type: ignore[arg-type]
-        username=_env("MQTT__USERNAME", "") or "",
-        password=_env("MQTT__PASSWORD", "") or "",
-        topic=_env("MQTT__TOPIC", "msh/#"),  # type: ignore[arg-type]
-        encryption_key=_env("MQTT__ENCRYPTION_KEY", "1PG7OiApB1nwvP+rz05pAQ=="),  # type: ignore[arg-type]
-    )
-    api = APIConfig(
-        host=_env("API__HOST", "0.0.0.0"),  # type: ignore[arg-type]
-        port=int(_env("API__PORT", "8080")),  # type: ignore[arg-type]
-    )
-    db = DBConfig(
-        path=_env("DB__PATH", "/data/trace-graph.db"),  # type: ignore[arg-type]
-    )
-    observability = ObservabilityConfig(
-        enabled=_env("OBSERVABILITY__ENABLED", "false").lower() in ("1", "true", "yes"),  # type: ignore[union-attr]
-        service_name=_env("OBSERVABILITY__SERVICE_NAME", "mesh-graph"),  # type: ignore[arg-type]
-        environment=_env("OBSERVABILITY__ENVIRONMENT", "dev"),  # type: ignore[arg-type]
-        exporter=_env("OBSERVABILITY__EXPORTER", "otlp"),  # type: ignore[arg-type]
-        otlp_endpoint=_env("OBSERVABILITY__OTLP_ENDPOINT", "http://127.0.0.1:4317"),  # type: ignore[arg-type]
-        sample_ratio=float(_env("OBSERVABILITY__SAMPLE_RATIO", "1.0")),  # type: ignore[arg-type]
-    )
-    return Config(mqtt=mqtt, api=api, db=db, observability=observability)
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        if require:
+            raise ConfigError(f"Config file not found: {path}")
+        return {}
+    except Exception as e:
+        raise ConfigError(f"Failed to parse config file '{path}': {e}") from e
 
+
+def _env(key: str) -> str | None:
+    """Return the env var value, or None if unset or empty."""
+    return os.environ.get(key) or None
+
+
+def load_config(path: str | None = "config.toml") -> Config:
+    """Load configuration with a layered resolution strategy.
+
+    Resolution order (highest priority wins):
+      1. Environment variables  (MQTT__BROKER, API__PORT, …)
+      2. config.toml values     (if *path* points to an existing file)
+      3. Built-in defaults
+
+    *path* behaviour:
+      - If explicitly provided (not the default) and the file is missing → error.
+      - If left as the default ``"config.toml"`` and the file is missing → silently
+        skip the file layer and rely on env vars / defaults.
+      - Pass ``None`` to skip the file layer entirely (env vars + defaults only).
+
+    The only required value is mqtt.broker / MQTT__BROKER — it must come from
+    one of the two sources.
+    """
+    DEFAULT_PATH = "config.toml"
+    explicit_path = path is not None and path != DEFAULT_PATH
+
+    toml: dict = {}
+    if path is not None:
+        toml = _load_toml(path, require=explicit_path)
+
+    mqtt_toml = toml.get("mqtt", {})
+    api_toml = toml.get("api", {})
+    db_toml = toml.get("db", {})
+    obs_toml = toml.get("observability", {})
+
+    # ------------------------------------------------------------------ mqtt
+    broker = _env("MQTT__BROKER") or mqtt_toml.get("broker")
+    if not broker:
+        raise ConfigError(
+            "Missing required config: set 'mqtt.broker' in config.toml or MQTT__BROKER env var"
+        )
+    mqtt = MQTTConfig(
+        broker=broker,
+        port=int(_env("MQTT__PORT") or mqtt_toml.get("port", 1883)),
+        username=_env("MQTT__USERNAME") or mqtt_toml.get("username", ""),
+        password=_env("MQTT__PASSWORD") or mqtt_toml.get("password", ""),
+        topic=_env("MQTT__TOPIC") or mqtt_toml.get("topic", "msh/#"),
+        encryption_key=_env("MQTT__ENCRYPTION_KEY") or mqtt_toml.get("encryption_key", "1PG7OiApB1nwvP+rz05pAQ=="),
+    )
+
+    # ------------------------------------------------------------------- api
+    api = APIConfig(
+        host=_env("API__HOST") or api_toml.get("host", "0.0.0.0"),
+        port=int(_env("API__PORT") or api_toml.get("port", 8080)),
+    )
+
+    # -------------------------------------------------------------------- db
+    db = DBConfig(
+        path=_env("DB__PATH") or db_toml.get("path", "trace-graph.db"),
+    )
+
+    # --------------------------------------------------------- observability
+    _obs_enabled_env = _env("OBSERVABILITY__ENABLED")
+    if _obs_enabled_env is not None:
+        obs_enabled = _obs_enabled_env.lower() in ("1", "true", "yes")
+    else:
+        obs_enabled = obs_toml.get("enabled", False)
+
+    observability = ObservabilityConfig(
+        enabled=obs_enabled,
+        service_name=_env("OBSERVABILITY__SERVICE_NAME") or obs_toml.get("service_name", "mesh-graph"),
+        environment=_env("OBSERVABILITY__ENVIRONMENT") or obs_toml.get("environment", "dev"),
+        exporter=_env("OBSERVABILITY__EXPORTER") or obs_toml.get("exporter", "otlp"),
+        otlp_endpoint=_env("OBSERVABILITY__OTLP_ENDPOINT") or obs_toml.get("otlp_endpoint", "http://127.0.0.1:4317"),
+        sample_ratio=float(_env("OBSERVABILITY__SAMPLE_RATIO") or obs_toml.get("sample_ratio", 1.0)),
+    )
+
+    return Config(mqtt=mqtt, api=api, db=db, observability=observability)

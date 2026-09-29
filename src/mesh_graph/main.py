@@ -7,7 +7,7 @@ import sys
 import uvicorn
 
 from mesh_graph.api.app import create_app
-from mesh_graph.config import load_config_from_env
+from mesh_graph.config import load_config
 from mesh_graph.db import get_connection, init_db
 from mesh_graph.ingestion.mqtt import MQTTDataSource
 from mesh_graph.observability import configure_observability
@@ -16,11 +16,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
-def main(mode: str = "both") -> None:
+def main(config_path: str = "config.toml", mode: str = "both") -> None:
     if mode not in ("ingestion", "api", "both"):
         raise ValueError(f"Invalid mode: {mode}. Must be 'ingestion', 'api', or 'both'.")
 
-    cfg = load_config_from_env()
+    cfg = load_config(config_path)
     configure_observability(cfg.observability)
 
     conn = get_connection(cfg.db.path)
@@ -69,13 +69,18 @@ def cli() -> None:
 
     parser = argparse.ArgumentParser(description="mesh-graph server")
     parser.add_argument(
+        "--config",
+        default="config.toml",
+        help="Path to config.toml (optional; env vars override file values)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["ingestion", "api", "both"],
         default="both",
         help="Run mode: 'ingestion' (MQTT data collection only), 'api' (HTTP server only), or 'both' (default)",
     )
     args = parser.parse_args()
-    main(args.mode)
+    main(args.config, args.mode)
 
 
 if __name__ == "__main__":
